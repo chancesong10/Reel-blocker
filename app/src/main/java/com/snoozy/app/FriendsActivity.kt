@@ -1,15 +1,12 @@
 package com.snoozy.app
 
 import android.app.Activity
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
-import android.widget.Toast
 
 // Which DM chats' Reels are allowed to play.
 class FriendsActivity : Activity() {
@@ -27,16 +24,6 @@ class FriendsActivity : Activity() {
         findViewById<View>(R.id.blockAll).setOnClickListener {
             FriendsStore.setAll(this, false)
             renderFriends()
-        }
-
-        val copyIds = findViewById<View>(R.id.copyIds)
-        copyIds.visibility = if (DebugCapture.ENABLED) View.VISIBLE else View.GONE
-        copyIds.setOnClickListener {
-            val dump = DebugCapture.read(this)
-            getSystemService(ClipboardManager::class.java)
-                .setPrimaryClip(ClipData.newPlainText("Snoozy screen IDs", dump))
-            val msg = if (dump.isEmpty()) "Nothing captured yet. Open Instagram first." else "Copied!"
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
     }
 

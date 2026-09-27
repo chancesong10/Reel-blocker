@@ -15,6 +15,8 @@ import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
+import android.widget.FrameLayout
 import android.widget.TextView
 
 class ReelBlockerService : AccessibilityService() {
@@ -30,6 +32,9 @@ class ReelBlockerService : AccessibilityService() {
         // While covering a Reel, keep re-checking so the cover disappears as
         // soon as you navigate away (even to an app we get no events from).
         private const val POLL_MS = 300L
+        // While covering, how often to check whether you're swiping away to
+        // the home screen or recent apps, so the cover doesn't linger on top.
+        private const val LEAVE_WATCH_MS = 100L
         // After tapping the Reels/Shorts tab, how long the cover waits for the
         // player to appear before assuming it was a false alarm.
         private const val PREEMPT_GRACE_MS = 1500L
@@ -41,7 +46,6 @@ class ReelBlockerService : AccessibilityService() {
         private const val FROM_DM_WINDOW_MS = 2500L
         // Ignore scroll events while the friend's Reel is still opening.
         private const val PASS_SETTLE_MS = 800L
-        private const val DEBUG_CAPTURE_EVERY_MS = 1000L
     }
 
     private class Target(
@@ -66,7 +70,7 @@ class ReelBlockerService : AccessibilityService() {
                 "com.instagram.android:id/clips_root_layout",
             ),
             listOf("com.instagram.android:id/tab_bar"),
-            // Captured from a real DM chat screen.
+            // From a real DM chat screen (Instagram, September 2026).
             dmChatIds = listOf(
                 "com.instagram.android:id/row_thread_composer_edittext",
                 "com.instagram.android:id/thread_fragment_container",
@@ -89,7 +93,6 @@ class ReelBlockerService : AccessibilityService() {
     private var lastCheck = 0L
     private var preemptUntil = 0L
     private var missCount = 0
-    private var lastDebugCapture = 0L
 
     // Friend Reels: the DM chat last seen, and whether the Reel now on screen
     // is the one that chat sent (a "pass"). Swiping to another Reel ends it.
@@ -106,6 +109,13 @@ class ReelBlockerService : AccessibilityService() {
     private val checkRunnable = Runnable {
         checkPending = false
         check()
+    }
+
+    private val leaveWatch = object : Runnable {
+        override fun run() {
+            if (overlay == null) return
+            if (anotherAppTakingOver()) hideCover() else handler.postDelayed(this, LEAVE_WATCH_MS)
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -128,7 +138,6 @@ class ReelBlockerService : AccessibilityService() {
     // Swiping from the friend's Reel to the next one ends the pass.
     private fun onScrollDuringPass(event: AccessibilityEvent, target: Target) {
         val id = event.source?.viewIdResourceName
-        if (DebugCapture.ENABLED) DebugCapture.captureScroll(this, id, event.className)
         if (SystemClock.uptimeMillis() - passStartedAt < PASS_SETTLE_MS) return
         if (id in target.playerIds) pass = false
     }
@@ -182,10 +191,6 @@ class ReelBlockerService : AccessibilityService() {
             return
         }
         if (root != null && DEBUG_DUMP_IDS) dumpIds(root, 0)
-        if (root != null && DebugCapture.ENABLED && lastCheck - lastDebugCapture > DEBUG_CAPTURE_EVERY_MS) {
-            lastDebugCapture = lastCheck
-            DebugCapture.captureScreen(this, root)
-        }
 
         val player = if (root != null && target != null) findVisible(root, target.playerIds) else null
         if (player == null) {
@@ -222,6 +227,9 @@ class ReelBlockerService : AccessibilityService() {
         }
 
         preemptUntil = 0L
+        // Mid-swipe to home/recents Instagram can still look active; don't
+        // put the cover back up while the launcher is taking over.
+        if (overlay == null && anotherAppTakingOver()) return
         // Cover the whole screen above the tab bar rather than the player's own
         // bounds, which shift while it animates and made the cover jump.
         val bounds = Rect().also { root!!.getBoundsInScreen(it) }
@@ -254,6 +262,7 @@ class ReelBlockerService : AccessibilityService() {
         if (existing != null) {
             if (bounds != overlayBounds) {
                 overlayBounds = bounds
+                placeBackButton(existing, bounds)
                 wm.updateViewLayout(existing, coverParams(bounds))
             }
             existing.findViewById<TextView>(R.id.blockedText).text = message
@@ -262,10 +271,47 @@ class ReelBlockerService : AccessibilityService() {
 
         val view = LayoutInflater.from(this).inflate(R.layout.blocked_overlay, null)
         view.findViewById<TextView>(R.id.blockedText).text = message
+        // Back works like the phone's Back: the app underneath leaves the Reel.
+        view.findViewById<View>(R.id.coverBack).setOnClickListener {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+        }
+        placeBackButton(view, bounds)
         wm.addView(view, coverParams(bounds))
         overlay = view
         overlayBounds = bounds
         muteMusic(true)
+        handler.postDelayed(leaveWatch, LEAVE_WATCH_MS)
+    }
+
+    // Keep the back button below the status bar when the cover reaches the top.
+    private fun placeBackButton(view: View, bounds: Rect) {
+        val button = view.findViewById<View>(R.id.coverBack)
+        val params = button.layoutParams as FrameLayout.LayoutParams
+        val gap = (16 * resources.displayMetrics.density).toInt()
+        params.topMargin = maxOf(statusBarHeight() - bounds.top, 0) + gap
+        button.layoutParams = params
+    }
+
+    private fun statusBarHeight(): Int {
+        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else 0
+    }
+
+    // Instagram/YouTube only report their own events, so swiping up to the
+    // home screen or recent apps goes unnoticed until it's over. The window
+    // list does show the launcher appearing right away. Only each window's
+    // app name is read. Small windows (picture-in-picture) don't count.
+    private fun anotherAppTakingOver(): Boolean {
+        val metrics = resources.displayMetrics
+        val screenArea = metrics.widthPixels.toLong() * metrics.heightPixels
+        val bounds = Rect()
+        return windows.any { window ->
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@any false
+            val pkg = window.root?.packageName?.toString() ?: return@any false
+            if (pkg in targets || pkg == packageName) return@any false
+            window.getBoundsInScreen(bounds)
+            bounds.width().toLong() * bounds.height() * 2 >= screenArea
+        }
     }
 
     private fun coverParams(bounds: Rect) = WindowManager.LayoutParams(
@@ -291,6 +337,7 @@ class ReelBlockerService : AccessibilityService() {
 
     private fun hideCover() {
         missCount = 0
+        handler.removeCallbacks(leaveWatch)
         overlay?.let { getSystemService(WindowManager::class.java).removeView(it) }
         overlay = null
         muteMusic(false)

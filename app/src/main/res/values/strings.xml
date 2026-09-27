@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">Snoozy</string>
-    <string name="accessibility_description">Only watches Instagram and YouTube, to detect when Reels or Shorts are opened and cover them. When a Reel is opened from a DM, it reads the chat name so Reels from friends you allow can play. Other apps are never seen, no messages are read, and the app has no internet access, so nothing ever leaves your phone.</string>
+    <string name="accessibility_description">Only watches Instagram and YouTube, to detect when Reels or Shorts are opened and cover them. When a Reel is opened from a DM, it reads the chat name so Reels from friends you allow can play. Other apps’ screens are never read (only which app is in front), no messages are read, and the app has no internet access, so nothing ever leaves your phone.</string>
     <string name="overlay_description">You asked Snoozy to keep them asleep.\nUse the tabs below or go back to leave.</string>
     <string name="setup_explainer">Android will warn that this app gets \"full control\". It shows that warning for every accessibility app. Snoozy only looks at Instagram and YouTube. It reads the name of a DM chat only so friends’ Reels can play. It has no internet access, so nothing can leave your phone.</string>
 </resources>

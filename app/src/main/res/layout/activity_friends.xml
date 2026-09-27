@@ -65,18 +65,5 @@
                 android:textColor="@color/ink_soft"
                 android:textSize="14sp" />
         </LinearLayout>
-
-        <!-- TEMPORARY: copy Instagram screen IDs once, then remove. -->
-        <TextView
-            android:id="@+id/copyIds"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="20dp"
-            android:background="?android:attr/selectableItemBackground"
-            android:padding="12dp"
-            android:text="🛠  Copy screen IDs (temporary)"
-            android:textColor="@color/ink_soft"
-            android:textSize="13sp" />
     </LinearLayout>
 </ScrollView>
