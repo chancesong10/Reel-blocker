@@ -15,6 +15,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Own task + hidden from recents, so Back/Home simply leave it. -->
+        <activity
+            android:name=".BlockedActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.example.reelblocker.blocked"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+
         <service
             android:name=".ReelBlockerService"
             android:exported="true"

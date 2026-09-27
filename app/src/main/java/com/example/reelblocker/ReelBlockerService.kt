@@ -1,16 +1,11 @@
 package com.example.reelblocker
 
 import android.accessibilityservice.AccessibilityService
-import android.graphics.PixelFormat
-import android.os.Build
+import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
-import android.view.LayoutInflater
-import android.view.View
-import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import android.widget.TextView
 
 class ReelBlockerService : AccessibilityService() {
 
@@ -45,7 +40,6 @@ class ReelBlockerService : AccessibilityService() {
     private var lastCheck = 0L
     private var lastBlock = 0L
     private var recentBlocks = 0
-    private var overlay: View? = null
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = event?.packageName?.toString() ?: return
@@ -72,10 +66,6 @@ class ReelBlockerService : AccessibilityService() {
         recentBlocks = if (now - lastBlock < ESCALATE_WINDOW_MS) recentBlocks + 1 else 1
         lastBlock = now
 
-        // Cover the screen first so the Reel/Short is never seen closing.
-        val what = if (pkg.contains("instagram")) "Reels" else "Shorts"
-        showBlockedScreen("$what blocked")
-
         // If "back" keeps landing on Reels/Shorts (e.g. opened from a link),
         // escalate to going home.
         if (recentBlocks >= ESCALATE_AFTER) {
@@ -84,45 +74,14 @@ class ReelBlockerService : AccessibilityService() {
         } else {
             performGlobalAction(GLOBAL_ACTION_BACK)
         }
-    }
 
-    // Accessibility overlays need no extra permission. The overlay is not
-    // focusable, so the back/home actions still reach the app underneath.
-    private fun showBlockedScreen(message: String) {
-        if (overlay != null) return
-        val view = LayoutInflater.from(this).inflate(R.layout.blocked_overlay, null)
-        view.findViewById<TextView>(R.id.blockedText).text = message
-        view.setOnClickListener { hideBlockedScreen() }
-
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.OPAQUE
+        // A normal screen (not an overlay), so the system nav bar can leave it.
+        val what = if (pkg.contains("instagram")) "Reels" else "Shorts"
+        startActivity(
+            Intent(this, BlockedActivity::class.java)
+                .putExtra(BlockedActivity.EXTRA_MESSAGE, "$what blocked")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
-        // Cover the status bar, navigation bar and camera cutout too.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            params.fitInsetsTypes = 0
-            params.layoutInDisplayCutoutMode =
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            params.layoutInDisplayCutoutMode =
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        }
-        getSystemService(WindowManager::class.java).addView(view, params)
-        overlay = view
-    }
-
-    private fun hideBlockedScreen() {
-        overlay?.let { getSystemService(WindowManager::class.java).removeView(it) }
-        overlay = null
-    }
-
-    override fun onDestroy() {
-        hideBlockedScreen()
-        super.onDestroy()
     }
 
     private fun dumpIds(node: AccessibilityNodeInfo?, depth: Int) {
