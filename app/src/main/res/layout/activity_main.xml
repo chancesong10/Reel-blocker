@@ -21,10 +21,62 @@
         android:gravity="center"
         android:textSize="18sp" />
 
-    <Button
-        android:id="@+id/enableButton"
-        android:layout_width="wrap_content"
+    <!-- Shown until the accessibility service is turned on. -->
+    <LinearLayout
+        android:id="@+id/setupGroup"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Turn on blocking" />
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:text="@string/setup_explainer"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/setupButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Set up in Accessibility settings" />
+    </LinearLayout>
+
+    <!-- Shown once set up: turn blocking on/off, with an optional lock. -->
+    <LinearLayout
+        android:id="@+id/controlGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/lockLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Can't unblock for at least:" />
+
+        <Spinner
+            android:id="@+id/lockSpinner"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" />
+
+        <Button
+            android:id="@+id/toggleButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp" />
+
+        <TextView
+            android:id="@+id/lockText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center" />
+    </LinearLayout>
 </LinearLayout>

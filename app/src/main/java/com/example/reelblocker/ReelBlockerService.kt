@@ -2,6 +2,7 @@ package com.example.reelblocker
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.PixelFormat
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
@@ -49,6 +50,7 @@ class ReelBlockerService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = event?.packageName?.toString() ?: return
         val ids = blockedIds[pkg] ?: return
+        if (!BlockState.isBlocking(this)) return
 
         // Content-changed events fire constantly; throttle the tree scan.
         val now = SystemClock.uptimeMillis()
@@ -100,6 +102,15 @@ class ReelBlockerService : AccessibilityService() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.OPAQUE
         )
+        // Cover the status bar, navigation bar and camera cutout too.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            params.fitInsetsTypes = 0
+            params.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            params.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
         getSystemService(WindowManager::class.java).addView(view, params)
         overlay = view
     }
