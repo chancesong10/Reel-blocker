@@ -3,3 +3,7 @@ build/
 local.properties
 .idea/
 *.iml
+
+# Store listing assets and promo video (kept out of the public repo)
+brag-output/
+store-assets/

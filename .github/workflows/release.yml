@@ -1,0 +1,38 @@
+name: Release bundle
+
+# Run by hand from the Actions tab when you want a Play Store upload.
+on:
+  workflow_dispatch:
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.11.1
+
+      - name: Restore upload key
+        run: echo "${{ secrets.SNOOZY_KEYSTORE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+
+      - name: Build signed release bundle
+        env:
+          SNOOZY_KEYSTORE: ${{ runner.temp }}/upload.jks
+          SNOOZY_KEYSTORE_PASSWORD: ${{ secrets.SNOOZY_KEYSTORE_PASSWORD }}
+          SNOOZY_KEY_ALIAS: ${{ secrets.SNOOZY_KEY_ALIAS }}
+          SNOOZY_KEY_PASSWORD: ${{ secrets.SNOOZY_KEY_PASSWORD }}
+          # Every run gets a higher versionCode, as Play requires.
+          VERSION_CODE: ${{ github.run_number }}
+        run: gradle bundleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snoozy-release-${{ github.run_number }}
+          path: app/build/outputs/bundle/release/app-release.aab
