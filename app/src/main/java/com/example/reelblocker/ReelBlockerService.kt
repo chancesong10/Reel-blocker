@@ -26,13 +26,17 @@ class ReelBlockerService : AccessibilityService() {
         // to find the current view IDs when Instagram/YouTube update their UI.
         private const val DEBUG_DUMP_IDS = false
 
-        private const val CHECK_INTERVAL_MS = 150L
+        private const val CHECK_INTERVAL_MS = 80L
         // While covering a Reel, keep re-checking so the cover disappears as
         // soon as you navigate away (even to an app we get no events from).
         private const val POLL_MS = 300L
+        // After tapping the Reels/Shorts tab, how long the cover waits for the
+        // player to appear before assuming it was a false alarm.
+        private const val PREEMPT_GRACE_MS = 1500L
     }
 
     private class Target(
+        // Also the label of the app's Reels/Shorts tab button.
         val name: String,
         // View IDs that only exist on the Reels / Shorts players.
         val playerIds: List<String>,
@@ -65,6 +69,7 @@ class ReelBlockerService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var checkPending = false
     private var lastCheck = 0L
+    private var preemptUntil = 0L
 
     private var overlay: View? = null
     private var overlayBounds = Rect()
@@ -76,8 +81,42 @@ class ReelBlockerService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val pkg = event?.packageName?.toString() ?: return
-        if (pkg in targets) scheduleCheck(0L)
+        if (event == null) return
+        val target = targets[event.packageName?.toString()] ?: return
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            // Any other tap (e.g. a different tab) cancels the grace period.
+            if (isTabTap(event, target)) preemptCover(target) else preemptUntil = 0L
+        }
+        scheduleCheck(0L)
+    }
+
+    // The player only shows up in the tree after it has drawn, which lets a
+    // few frames of video through. Tapping the Reels/Shorts tab is the common
+    // way in, so cover the screen on the tap itself, before the video loads.
+    private fun isTabTap(event: AccessibilityEvent, target: Target): Boolean {
+        val source = event.source
+        val labels = event.text.map { it.toString() } + listOfNotNull(
+            event.contentDescription?.toString(),
+            source?.contentDescription?.toString(),
+            source?.text?.toString(),
+        )
+        return labels.any { it.trim().equals(target.name, ignoreCase = true) }
+    }
+
+    private fun preemptCover(target: Target) {
+        if (!BlockState.isBlocking(this)) return
+        val root = rootInActiveWindow ?: return
+        val bounds = Rect().also { root.getBoundsInScreen(it) }
+        clipAboveTabBar(root, target, bounds)
+        showCover("${target.name} blocked", bounds)
+        preemptUntil = SystemClock.uptimeMillis() + PREEMPT_GRACE_MS
+    }
+
+    private fun clipAboveTabBar(root: AccessibilityNodeInfo, target: Target, bounds: Rect) {
+        findVisible(root, target.tabBarIds)?.let { tabBar ->
+            val tabBounds = Rect().also { tabBar.getBoundsInScreen(it) }
+            if (tabBounds.top > bounds.top) bounds.bottom = minOf(bounds.bottom, tabBounds.top)
+        }
     }
 
     // Content-changed events fire constantly, so coalesce them into at most
@@ -102,15 +141,18 @@ class ReelBlockerService : AccessibilityService() {
 
         val player = findVisible(root, target.playerIds)
         if (player == null) {
-            hideCover()
+            // Just tapped the tab: keep covering while the player loads.
+            if (overlay != null && lastCheck < preemptUntil) {
+                scheduleCheck(POLL_MS)
+            } else {
+                hideCover()
+            }
             return
         }
 
+        preemptUntil = 0L
         val bounds = Rect().also { player.getBoundsInScreen(it) }
-        findVisible(root, target.tabBarIds)?.let { tabBar ->
-            val tabBounds = Rect().also { tabBar.getBoundsInScreen(it) }
-            if (tabBounds.top > bounds.top) bounds.bottom = minOf(bounds.bottom, tabBounds.top)
-        }
+        clipAboveTabBar(root, target, bounds)
         showCover("${target.name} blocked", bounds)
         scheduleCheck(POLL_MS)
     }

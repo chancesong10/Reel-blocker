@@ -76,7 +76,7 @@ class MainActivity : Activity() {
         val remaining = BlockState.lockRemainingMs(this)
 
         findViewById<TextView>(R.id.status).text = when {
-            !serviceOn -> "Not set up yet\nTap below, then turn on \"Reel Blocker\"."
+            !serviceOn -> "Not set up yet\nTap below, then turn on \"Snoozy\"."
             blocking -> "✅ Reels and Shorts are blocked"
             else -> "Reels and Shorts are allowed"
         }
