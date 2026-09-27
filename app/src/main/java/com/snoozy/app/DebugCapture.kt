@@ -14,7 +14,7 @@ object DebugCapture {
 
     private const val PREFS = "debug_capture"
     private const val KEY = "screens"
-    private const val MAX_SCREENS = 4
+    private const val MAX_SCREENS = 10
 
     private val screens = ArrayDeque<String>()
     private var lastSignature = 0

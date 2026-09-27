@@ -17,6 +17,14 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".FriendsActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".SnoozeOptionsActivity"
+            android:exported="false" />
+
         <service
             android:name=".ReelBlockerService"
             android:exported="true"

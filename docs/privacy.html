@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Snoozy Privacy Policy</title>
+  <meta name="description" content="How Snoozy handles your information: it collects nothing and has no internet access.">
+  <link rel="icon" href="snoozy_face.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wrap doc">
+    <nav class="nav">
+      <a class="brand" href="./"><img src="snoozy_face.png" alt="">Snoozy</a>
+      <div class="links">
+        <a class="pill" href="./">Home</a>
+        <a class="pill" href="privacy.html" aria-current="page">Privacy</a>
+        <a class="pill" href="terms.html">Terms</a>
+      </div>
+    </nav>
+
+    <h1>Privacy Policy</h1>
+    <p class="updated">Effective September 27, 2026</p>
+
+    <div class="card summary">
+      <h2>The short version</h2>
+      <ul>
+        <li>Snoozy does <strong>not collect, store on any server, sell or share</strong> any of your information.</li>
+        <li>Snoozy has <strong>no internet access</strong>. The app doesn't request Android's internet permission, so it cannot send anything off your phone.</li>
+        <li>Snoozy uses Android's Accessibility Service only to notice when Instagram Reels or YouTube Shorts are on screen and cover them.</li>
+        <li>The few settings Snoozy keeps stay on your phone and are deleted when you uninstall it.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>1. Who we are</h2>
+      <p>This policy covers the Snoozy app for Android ("Snoozy", "the app", "we", "us"). Snoozy is an independent app and is not affiliated with, endorsed by or sponsored by Instagram, Meta Platforms, YouTube or Google.</p>
+    </div>
+
+    <div class="card">
+      <h2>2. Accessibility Service: what Snoozy looks at, and why</h2>
+      <p>Snoozy's one job is to cover short-video feeds you've chosen to block. To do that, it uses Android's Accessibility Service API, which you turn on yourself in your phone's Accessibility settings. Android shows a general warning that such apps can "view and control your screen". Here is exactly what Snoozy does with that access:</p>
+      <ul>
+        <li><strong>Which apps:</strong> Snoozy is configured to receive events only from Instagram (<code>com.instagram.android</code>) and YouTube (<code>com.google.android.youtube</code>). To remove its cover when you leave those apps, it checks which app is in front. It reads only that app's name and nothing else.</li>
+        <li><strong>What it checks:</strong> inside those two apps, Snoozy looks for the internal screen labels (view IDs) that mark the Reels and Shorts players, and the app's bottom tab bar so it can leave the bar uncovered.</li>
+        <li><strong>DM chat names:</strong> when you open a direct-message chat in Instagram, Snoozy reads the chat's name shown at the top of the screen (a person's name, or a group's name). This is used only for the Friends' Reels feature, so a Reel opened from a chat you allow can play.</li>
+        <li><strong>What it does:</strong> it draws a covering screen over the Reels or Shorts player and temporarily mutes media sound while the cover is shown.</li>
+        <li><strong>What it never does:</strong> read your messages, captions, comments, posts, passwords or anything you type; take screenshots or recordings; tap or type on your behalf; or look at any other app's content.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>3. Information stored on your phone</h2>
+      <p>Snoozy saves a small amount of information in the app's private storage on your device. Other apps can't read it, and it is never uploaded.</p>
+      <div class="table-scroll">
+        <table>
+          <tr><th>What</th><th>Why</th></tr>
+          <tr><td>Whether blocking is on, your lock end time and your last chosen lock length</td><td>To keep Reels and Shorts snoozed and enforce the minimum snooze you chose</td></tr>
+          <tr><td>Your snooze timer options</td><td>To show your chosen lengths on the home screen</td></tr>
+          <tr><td>Names of Instagram DM chats you've opened, and whether each is allowed</td><td>For the Friends' Reels list, so you can allow or block Reels per chat</td></tr>
+        </table>
+      </div>
+      <p>You can delete individual items in the app, or everything at once by clearing Snoozy's storage in Android Settings or uninstalling the app.</p>
+    </div>
+
+    <div class="card">
+      <h2>4. What we collect: nothing</h2>
+      <p>We don't run servers for Snoozy and don't receive any data from it. There are no accounts, analytics, advertising, crash reporting or third-party SDKs. Because the app has no internet access, none of the information in section 3 can be transmitted by Snoozy.</p>
+      <p>If you download Snoozy from Google Play, Google may collect information under its own privacy policy (for example, install statistics). This is outside our control.</p>
+    </div>
+
+    <div class="card">
+      <h2>5. Sharing and selling</h2>
+      <p>We don't sell, rent, trade or share any personal information, because we don't have any.</p>
+    </div>
+
+    <div class="card">
+      <h2>6. Children</h2>
+      <p>Snoozy is not directed at children under 13 and doesn't knowingly collect information from anyone, including children.</p>
+    </div>
+
+    <div class="card">
+      <h2>7. Security</h2>
+      <p>Everything Snoozy saves stays in Android's app-private storage on your device, protected by your phone's lock screen and Android's app sandbox. Keeping your phone locked and up to date keeps this information safe.</p>
+    </div>
+
+    <div class="card">
+      <h2>8. Your choices</h2>
+      <ul>
+        <li>Turn Snoozy's Accessibility Service off at any time in Android Settings → Accessibility. Snoozy stops observing immediately.</li>
+        <li>Remove chats from the Friends' Reels list by clearing the app's storage, or block them with the switches in the app.</li>
+        <li>Uninstall Snoozy to delete everything it has stored.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>9. Changes to this policy</h2>
+      <p>If Snoozy's handling of information ever changes, we'll update this page and the effective date above before the change takes effect in the app.</p>
+    </div>
+
+    <div class="card">
+      <h2>10. Contact</h2>
+      <p>Questions about this policy? Email <a href="mailto:hello@example.com">hello@example.com</a>.</p>
+    </div>
+
+    <footer>
+      <p><a href="./">Home</a> · <a href="terms.html">Terms of Service</a></p>
+      <p>Snoozy is not affiliated with Instagram, Meta, YouTube or Google.</p>
+    </footer>
+  </div>
+</body>
+</html>

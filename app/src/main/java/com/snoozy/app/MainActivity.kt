@@ -2,8 +2,6 @@ package com.snoozy.app
 
 import android.app.Activity
 import android.app.Dialog
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
@@ -18,24 +16,13 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
-import android.widget.Switch
 import android.widget.TextView
-import android.widget.Toast
 
 class MainActivity : Activity() {
 
-    // Minimum time blocking must stay on before it can be turned off.
-    // (chip label, big text in the ring, length in ms)
-    private val lockOptions = listOf(
-        Triple("None", "0m", 0L),
-        Triple("15m", "15m", 15 * MINUTE),
-        Triple("30m", "30m", 30 * MINUTE),
-        Triple("1h", "1h", 60 * MINUTE),
-        Triple("2h", "2h", 2 * 60 * MINUTE),
-        Triple("4h", "4h", 4 * 60 * MINUTE),
-        Triple("8h", "8h", 8 * 60 * MINUTE),
-        Triple("24h", "24h", 24 * 60 * MINUTE),
-    )
+    // Minimum time blocking must stay on before it can be turned off, in
+    // minutes. "None" (0) plus the options set on the Snooze options page.
+    private var lockOptions = listOf(0)
 
     private val handler = Handler(Looper.getMainLooper())
     private val tick = object : Runnable {
@@ -46,7 +33,7 @@ class MainActivity : Activity() {
     }
 
     private val chips = mutableListOf<TextView>()
-    private var selected = 0
+    private var selectedMinutes = 0
 
     private lateinit var ring: TimerRingView
 
@@ -59,58 +46,29 @@ class MainActivity : Activity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
-        val lastChoice = BlockState.lastChoiceMs(this, 60 * MINUTE)
-        selected = lockOptions.indexOfFirst { it.third == lastChoice }.coerceAtLeast(0)
-        buildChips()
+        selectedMinutes = (BlockState.lastChoiceMs(this, 60 * MINUTE) / MINUTE).toInt()
 
         findViewById<View>(R.id.toggleButton).setOnClickListener {
             if (BlockState.isBlocking(this)) {
                 BlockState.unblock(this)
                 render()
-            } else if (lockOptions[selected].third == 0L) {
+            } else if (selectedMinutes == 0) {
                 BlockState.block(this, 0L)
                 render()
             } else {
-                confirmSnooze(lockOptions[selected].third)
+                confirmSnooze(selectedMinutes * MINUTE)
             }
         }
 
-        findViewById<View>(R.id.allowAll).setOnClickListener {
-            FriendsStore.setAll(this, true)
-            renderFriends()
+        findViewById<View>(R.id.openFriends).setOnClickListener {
+            startActivity(Intent(this, FriendsActivity::class.java))
         }
-        findViewById<View>(R.id.blockAll).setOnClickListener {
-            FriendsStore.setAll(this, false)
-            renderFriends()
-        }
-
-        val copyIds = findViewById<View>(R.id.copyIds)
-        copyIds.visibility = if (DebugCapture.ENABLED) View.VISIBLE else View.GONE
-        copyIds.setOnClickListener {
-            val dump = DebugCapture.read(this)
-            getSystemService(ClipboardManager::class.java)
-                .setPrimaryClip(ClipData.newPlainText("Snoozy screen IDs", dump))
-            val msg = if (dump.isEmpty()) "Nothing captured yet. Open Instagram first." else "Copied!"
-            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        findViewById<View>(R.id.openOptions).setOnClickListener {
+            startActivity(Intent(this, SnoozeOptionsActivity::class.java))
         }
     }
 
-    // Built on resume rather than every tick, so switches aren't redrawn mid-tap.
-    private fun renderFriends() {
-        val list = findViewById<LinearLayout>(R.id.friendsList)
-        list.removeAllViews()
-        val friends = FriendsStore.all(this)
-        val inflater = LayoutInflater.from(this)
-        for ((name, allowed) in friends) {
-            val row = inflater.inflate(R.layout.item_friend, list, false)
-            row.findViewById<TextView>(R.id.friendName).text = name
-            val switch = row.findViewById<Switch>(R.id.friendSwitch)
-            switch.isChecked = allowed
-            switch.setOnCheckedChangeListener { _, checked -> FriendsStore.set(this, name, checked) }
-            list.addView(row)
-        }
-        findViewById<View>(R.id.friendsEmpty).visibility = if (friends.isEmpty()) View.VISIBLE else View.GONE
-    }
+    private fun label(minutes: Int) = if (minutes == 0) "None" else SnoozeOptions.label(minutes)
 
     // A lock can't be undone, so double-check before starting one.
     private fun confirmSnooze(lockMs: Long) {
@@ -124,7 +82,7 @@ class MainActivity : Activity() {
         var time = DateFormat.getTimeFormat(this).format(until)
         if (!DateUtils.isToday(until)) time = "tomorrow at $time"
         view.findViewById<TextView>(R.id.confirmTitle).text =
-            "Snooze for ${lockOptions[selected].first}?"
+            "Snooze for ${label(selectedMinutes)}?"
         view.findViewById<TextView>(R.id.confirmMessage).text =
             "Reels & Shorts will stay blocked until $time. You won't be able to turn it off before then, not even from this app."
 
@@ -137,25 +95,44 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
+    // Rows of 4 chips. The last row is padded with empty space so every chip
+    // keeps the same width.
     private fun buildChips() {
-        val rows = listOf<LinearLayout>(findViewById(R.id.chipRow1), findViewById(R.id.chipRow2))
+        lockOptions = listOf(0) + SnoozeOptions.get(this)
+        if (selectedMinutes !in lockOptions) selectedMinutes = 0
+
+        val rows = findViewById<LinearLayout>(R.id.chipRows)
+        rows.removeAllViews()
+        chips.clear()
         val inflater = LayoutInflater.from(this)
-        lockOptions.forEachIndexed { i, option ->
-            val row = rows[i / 4]
-            val chip = inflater.inflate(R.layout.item_chip, row, false) as TextView
-            chip.text = option.first
-            chip.setOnClickListener {
-                selected = i
-                render()
+        for (group in lockOptions.chunked(CHIPS_PER_ROW)) {
+            val row = LinearLayout(this)
+            for (minutes in group) {
+                val chip = inflater.inflate(R.layout.item_chip, row, false) as TextView
+                chip.text = label(minutes)
+                chip.tag = minutes
+                chip.setOnClickListener {
+                    selectedMinutes = minutes
+                    render()
+                }
+                row.addView(chip)
+                chips += chip
             }
-            row.addView(chip)
-            chips += chip
+            repeat(CHIPS_PER_ROW - group.size) {
+                val spacer = inflater.inflate(R.layout.item_chip, row, false)
+                spacer.visibility = View.INVISIBLE
+                row.addView(spacer)
+            }
+            rows.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
     }
 
     override fun onResume() {
         super.onResume()
-        renderFriends()
+        buildChips()
+        val friends = FriendsStore.all(this)
+        findViewById<TextView>(R.id.friendsSummary).text =
+            if (friends.isEmpty()) "No chats yet" else "${friends.count { it.second }} of ${friends.size} allowed"
         handler.post(tick)
     }
 
@@ -196,14 +173,14 @@ class MainActivity : Activity() {
             }
             else -> {
                 ring.progress = 0f
-                big.text = lockOptions[selected].second
+                big.text = if (selectedMinutes == 0) "0m" else SnoozeOptions.label(selectedMinutes)
                 caption.text = "minimum snooze"
             }
         }
 
         // The lock length is only chosen when starting a snooze.
         findViewById<View>(R.id.chipGroup).visibility = if (blocking) View.GONE else View.VISIBLE
-        chips.forEachIndexed { i, chip -> chip.isSelected = i == selected }
+        chips.forEach { it.isSelected = it.tag == selectedMinutes }
 
         val toggle = findViewById<TextView>(R.id.toggleButton)
         toggle.text = when {
@@ -217,7 +194,7 @@ class MainActivity : Activity() {
         findViewById<TextView>(R.id.hint).text = when {
             locked -> "You picked this lock. Hang in there!"
             blocking -> "Your lock is over. You can wake them up any time."
-            selected == 0 -> "No lock: you can wake them up any time."
+            selectedMinutes == 0 -> "No lock: you can wake them up any time."
             else -> "Once started, you can't stop early."
         }
     }
@@ -240,5 +217,6 @@ class MainActivity : Activity() {
 
     companion object {
         private const val MINUTE = 60_000L
+        private const val CHIPS_PER_ROW = 4
     }
 }

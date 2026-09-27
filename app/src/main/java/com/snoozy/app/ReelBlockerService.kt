@@ -66,16 +66,12 @@ class ReelBlockerService : AccessibilityService() {
                 "com.instagram.android:id/clips_root_layout",
             ),
             listOf("com.instagram.android:id/tab_bar"),
-            // TODO: best guesses until the real IDs are captured with DebugCapture.
+            // Captured from a real DM chat screen.
             dmChatIds = listOf(
                 "com.instagram.android:id/row_thread_composer_edittext",
-                "com.instagram.android:id/direct_thread_composer",
                 "com.instagram.android:id/thread_fragment_container",
             ),
-            dmTitleIds = listOf(
-                "com.instagram.android:id/thread_title",
-                "com.instagram.android:id/action_bar_title",
-            ),
+            dmTitleIds = listOf("com.instagram.android:id/header_title"),
         ),
         "com.google.android.youtube" to Target(
             "Shorts",
