@@ -1,4 +1,4 @@
-package com.example.reelblocker
+package com.snoozy.app
 
 import android.content.Context
 

@@ -1,16 +1,26 @@
-package com.example.reelblocker
+package com.snoozy.app
 
 import android.app.Activity
+import android.app.Dialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.text.format.DateFormat
+import android.text.format.DateUtils
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.Switch
 import android.widget.TextView
+import android.widget.Toast
 
 class MainActivity : Activity() {
 
@@ -56,11 +66,75 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.toggleButton).setOnClickListener {
             if (BlockState.isBlocking(this)) {
                 BlockState.unblock(this)
+                render()
+            } else if (lockOptions[selected].third == 0L) {
+                BlockState.block(this, 0L)
+                render()
             } else {
-                BlockState.block(this, lockOptions[selected].third)
+                confirmSnooze(lockOptions[selected].third)
             }
+        }
+
+        findViewById<View>(R.id.allowAll).setOnClickListener {
+            FriendsStore.setAll(this, true)
+            renderFriends()
+        }
+        findViewById<View>(R.id.blockAll).setOnClickListener {
+            FriendsStore.setAll(this, false)
+            renderFriends()
+        }
+
+        val copyIds = findViewById<View>(R.id.copyIds)
+        copyIds.visibility = if (DebugCapture.ENABLED) View.VISIBLE else View.GONE
+        copyIds.setOnClickListener {
+            val dump = DebugCapture.read(this)
+            getSystemService(ClipboardManager::class.java)
+                .setPrimaryClip(ClipData.newPlainText("Snoozy screen IDs", dump))
+            val msg = if (dump.isEmpty()) "Nothing captured yet. Open Instagram first." else "Copied!"
+            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Built on resume rather than every tick, so switches aren't redrawn mid-tap.
+    private fun renderFriends() {
+        val list = findViewById<LinearLayout>(R.id.friendsList)
+        list.removeAllViews()
+        val friends = FriendsStore.all(this)
+        val inflater = LayoutInflater.from(this)
+        for ((name, allowed) in friends) {
+            val row = inflater.inflate(R.layout.item_friend, list, false)
+            row.findViewById<TextView>(R.id.friendName).text = name
+            val switch = row.findViewById<Switch>(R.id.friendSwitch)
+            switch.isChecked = allowed
+            switch.setOnCheckedChangeListener { _, checked -> FriendsStore.set(this, name, checked) }
+            list.addView(row)
+        }
+        findViewById<View>(R.id.friendsEmpty).visibility = if (friends.isEmpty()) View.VISIBLE else View.GONE
+    }
+
+    // A lock can't be undone, so double-check before starting one.
+    private fun confirmSnooze(lockMs: Long) {
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_confirm, null)
+        val dialog = Dialog(this)
+        dialog.setContentView(view)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+        val until = System.currentTimeMillis() + lockMs
+        var time = DateFormat.getTimeFormat(this).format(until)
+        if (!DateUtils.isToday(until)) time = "tomorrow at $time"
+        view.findViewById<TextView>(R.id.confirmTitle).text =
+            "Snooze for ${lockOptions[selected].first}?"
+        view.findViewById<TextView>(R.id.confirmMessage).text =
+            "Reels & Shorts will stay blocked until $time. You won't be able to turn it off before then, not even from this app."
+
+        view.findViewById<View>(R.id.confirmYes).setOnClickListener {
+            BlockState.block(this, lockMs)
+            dialog.dismiss()
             render()
         }
+        view.findViewById<View>(R.id.confirmNo).setOnClickListener { dialog.dismiss() }
+        dialog.show()
     }
 
     private fun buildChips() {
@@ -81,6 +155,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        renderFriends()
         handler.post(tick)
     }
 

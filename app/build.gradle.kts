@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.reelblocker"
+    namespace = "com.snoozy.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.reelblocker"
+        applicationId = "com.snoozy.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

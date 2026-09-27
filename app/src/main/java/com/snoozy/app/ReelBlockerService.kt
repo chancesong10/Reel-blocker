@@ -1,4 +1,4 @@
-package com.example.reelblocker
+package com.snoozy.app
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.PixelFormat
@@ -36,6 +36,12 @@ class ReelBlockerService : AccessibilityService() {
         // A single missed check (mid-animation, tree not ready) is not enough
         // to uncover the Reel; that caused the cover to flicker on and off.
         private const val MISSES_BEFORE_HIDE = 2
+        // A Reel counts as "sent by a friend" if it opens this soon after a
+        // DM chat was on screen.
+        private const val FROM_DM_WINDOW_MS = 2500L
+        // Ignore scroll events while the friend's Reel is still opening.
+        private const val PASS_SETTLE_MS = 800L
+        private const val DEBUG_CAPTURE_EVERY_MS = 1000L
     }
 
     private class Target(
@@ -45,6 +51,9 @@ class ReelBlockerService : AccessibilityService() {
         val playerIds: List<String>,
         // The app's own bottom tab bar, left uncovered so you can navigate away.
         val tabBarIds: List<String>,
+        // A DM chat screen, and the chat name at its top. Empty = no friend Reels.
+        val dmChatIds: List<String> = emptyList(),
+        val dmTitleIds: List<String> = emptyList(),
     )
 
     // These IDs change when the apps update. Use DEBUG_DUMP_IDS to find new ones.
@@ -57,6 +66,16 @@ class ReelBlockerService : AccessibilityService() {
                 "com.instagram.android:id/clips_root_layout",
             ),
             listOf("com.instagram.android:id/tab_bar"),
+            // TODO: best guesses until the real IDs are captured with DebugCapture.
+            dmChatIds = listOf(
+                "com.instagram.android:id/row_thread_composer_edittext",
+                "com.instagram.android:id/direct_thread_composer",
+                "com.instagram.android:id/thread_fragment_container",
+            ),
+            dmTitleIds = listOf(
+                "com.instagram.android:id/thread_title",
+                "com.instagram.android:id/action_bar_title",
+            ),
         ),
         "com.google.android.youtube" to Target(
             "Shorts",
@@ -74,6 +93,15 @@ class ReelBlockerService : AccessibilityService() {
     private var lastCheck = 0L
     private var preemptUntil = 0L
     private var missCount = 0
+    private var lastDebugCapture = 0L
+
+    // Friend Reels: the DM chat last seen, and whether the Reel now on screen
+    // is the one that chat sent (a "pass"). Swiping to another Reel ends it.
+    private var dmChat: String? = null
+    private var dmSeenAt = 0L
+    private var playerShowing = false
+    private var pass = false
+    private var passStartedAt = 0L
 
     private var overlay: View? = null
     private var overlayBounds = Rect()
@@ -89,9 +117,24 @@ class ReelBlockerService : AccessibilityService() {
         val target = targets[event.packageName?.toString()] ?: return
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
             // Any other tap (e.g. a different tab) cancels the grace period.
-            if (isTabTap(event, target)) preemptCover(target) else preemptUntil = 0L
+            if (isTabTap(event, target)) {
+                // The Reels tab is never a friend's Reel, even right after a chat.
+                dmSeenAt = 0L
+                preemptCover(target)
+            } else {
+                preemptUntil = 0L
+            }
         }
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && pass) onScrollDuringPass(event, target)
         scheduleCheck(0L)
+    }
+
+    // Swiping from the friend's Reel to the next one ends the pass.
+    private fun onScrollDuringPass(event: AccessibilityEvent, target: Target) {
+        val id = event.source?.viewIdResourceName
+        if (DebugCapture.ENABLED) DebugCapture.captureScroll(this, id, event.className)
+        if (SystemClock.uptimeMillis() - passStartedAt < PASS_SETTLE_MS) return
+        if (id in target.playerIds) pass = false
     }
 
     // The player only shows up in the tree after it has drawn, which lets a
@@ -143,10 +186,20 @@ class ReelBlockerService : AccessibilityService() {
             return
         }
         if (root != null && DEBUG_DUMP_IDS) dumpIds(root, 0)
+        if (root != null && DebugCapture.ENABLED && lastCheck - lastDebugCapture > DEBUG_CAPTURE_EVERY_MS) {
+            lastDebugCapture = lastCheck
+            DebugCapture.captureScreen(this, root)
+        }
 
         val player = if (root != null && target != null) findVisible(root, target.playerIds) else null
         if (player == null) {
+            if (root != null && target != null) noteDmChat(root, target)
             missCount++
+            // Count the player as gone only once the cover would come off too.
+            if (missCount >= MISSES_BEFORE_HIDE) {
+                playerShowing = false
+                pass = false
+            }
             val loadingAfterTap = lastCheck < preemptUntil
             if (overlay != null && (loadingAfterTap || missCount < MISSES_BEFORE_HIDE)) {
                 scheduleCheck(POLL_MS)
@@ -157,6 +210,21 @@ class ReelBlockerService : AccessibilityService() {
         }
 
         missCount = 0
+        if (!playerShowing) {
+            // A Reel just opened. Was it tapped in an allowed friend's chat?
+            playerShowing = true
+            val chat = dmChat
+            pass = chat != null && lastCheck - dmSeenAt < FROM_DM_WINDOW_MS &&
+                FriendsStore.isAllowed(this, chat)
+            passStartedAt = lastCheck
+        }
+        if (pass) {
+            preemptUntil = 0L
+            hideCover()
+            scheduleCheck(POLL_MS)
+            return
+        }
+
         preemptUntil = 0L
         // Cover the whole screen above the tab bar rather than the player's own
         // bounds, which shift while it animates and made the cover jump.
@@ -164,6 +232,16 @@ class ReelBlockerService : AccessibilityService() {
         clipAboveTabBar(root!!, target!!, bounds)
         showCover("Shh… ${target.name} are snoozing", bounds)
         scheduleCheck(POLL_MS)
+    }
+
+    // Remember which DM chat is open, so a Reel tapped in it can be allowed.
+    private fun noteDmChat(root: AccessibilityNodeInfo, target: Target) {
+        if (target.dmChatIds.isEmpty() || findVisible(root, target.dmChatIds) == null) return
+        val name = findVisible(root, target.dmTitleIds)?.text?.toString()?.trim()
+        if (name.isNullOrEmpty()) return
+        dmChat = name
+        dmSeenAt = lastCheck
+        FriendsStore.remember(this, name)
     }
 
     private fun findVisible(root: AccessibilityNodeInfo, ids: List<String>): AccessibilityNodeInfo? =
