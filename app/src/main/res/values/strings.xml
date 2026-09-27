@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">Reel Blocker</string>
-    <string name="accessibility_description">Only watches Instagram and YouTube, only to detect when Reels or Shorts are opened, then covers them. Other apps are never seen. The app has no internet access, so nothing can be collected or sent anywhere.</string>
-    <string name="overlay_description">You turned on Reel Blocker to stay off short videos. The Reel was closed. Press Back to return to the app, or Home to leave.</string>
+    <string name="accessibility_description">Only watches Instagram and YouTube, only to detect when Reels or Shorts are opened, then covers the video with a black screen. Other apps are never seen. The app has no internet access, so nothing can be collected or sent anywhere.</string>
+    <string name="overlay_description">You turned on Reel Blocker to stay off short videos. Use the tabs below or go back to leave.</string>
     <string name="setup_explainer">Android will warn that this app gets \"full control\". It shows that warning for every accessibility app. Reel Blocker only looks at Instagram and YouTube, and it has no internet access, so nothing can leave your phone.</string>
 </resources>
