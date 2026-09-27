@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Reel Blocker</string>
+    <string name="accessibility_description">Watches Instagram and YouTube only to detect when Reels or Shorts are opened, then sends you back. No data is collected or sent anywhere.</string>
+</resources>
