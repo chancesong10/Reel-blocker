@@ -1,3 +1,18 @@
 <resources>
     <color name="ic_launcher_background">#BCEBD9</color>
+
+    <!-- Snoozy palette, taken from the app icon. -->
+    <color name="cream">#FFF7EE</color>
+    <color name="card">#FFFFFF</color>
+    <color name="mint">#BCEBD9</color>
+    <color name="mint_deep">#6FC7A8</color>
+    <color name="coral">#FF7B6B</color>
+    <color name="coral_pressed">#F0645A</color>
+    <color name="coral_soft">#FFE3DD</color>
+    <color name="navy">#3D4F8A</color>
+    <color name="ink">#2A2838</color>
+    <color name="ink_soft">#8A8799</color>
+    <color name="track">#F1EAE1</color>
+    <color name="disabled">#E6E0D8</color>
+    <color name="night">#1E1C2A</color>
 </resources>

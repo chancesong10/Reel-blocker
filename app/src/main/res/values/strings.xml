@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">Snoozy</string>
     <string name="accessibility_description">Only watches Instagram and YouTube, only to detect when Reels or Shorts are opened, then covers the video with a black screen. Other apps are never seen. The app has no internet access, so nothing can be collected or sent anywhere.</string>
-    <string name="overlay_description">You turned on Snoozy to stay off short videos. Use the tabs below or go back to leave.</string>
+    <string name="overlay_description">You asked Snoozy to keep them asleep.\nUse the tabs below or go back to leave.</string>
     <string name="setup_explainer">Android will warn that this app gets \"full control\". It shows that warning for every accessibility app. Snoozy only looks at Instagram and YouTube, and it has no internet access, so nothing can leave your phone.</string>
 </resources>

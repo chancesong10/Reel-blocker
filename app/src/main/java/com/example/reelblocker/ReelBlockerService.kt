@@ -33,6 +33,9 @@ class ReelBlockerService : AccessibilityService() {
         // After tapping the Reels/Shorts tab, how long the cover waits for the
         // player to appear before assuming it was a false alarm.
         private const val PREEMPT_GRACE_MS = 1500L
+        // A single missed check (mid-animation, tree not ready) is not enough
+        // to uncover the Reel; that caused the cover to flicker on and off.
+        private const val MISSES_BEFORE_HIDE = 2
     }
 
     private class Target(
@@ -70,6 +73,7 @@ class ReelBlockerService : AccessibilityService() {
     private var checkPending = false
     private var lastCheck = 0L
     private var preemptUntil = 0L
+    private var missCount = 0
 
     private var overlay: View? = null
     private var overlayBounds = Rect()
@@ -108,7 +112,7 @@ class ReelBlockerService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         val bounds = Rect().also { root.getBoundsInScreen(it) }
         clipAboveTabBar(root, target, bounds)
-        showCover("${target.name} blocked", bounds)
+        showCover("Shh… ${target.name} are snoozing", bounds)
         preemptUntil = SystemClock.uptimeMillis() + PREEMPT_GRACE_MS
     }
 
@@ -133,16 +137,18 @@ class ReelBlockerService : AccessibilityService() {
 
         val root = rootInActiveWindow
         val target = targets[root?.packageName?.toString()]
-        if (root == null || target == null || !BlockState.isBlocking(this)) {
+        // Another app in front, or blocking turned off: uncover right away.
+        if (!BlockState.isBlocking(this) || (root != null && target == null)) {
             hideCover()
             return
         }
-        if (DEBUG_DUMP_IDS) dumpIds(root, 0)
+        if (root != null && DEBUG_DUMP_IDS) dumpIds(root, 0)
 
-        val player = findVisible(root, target.playerIds)
+        val player = if (root != null && target != null) findVisible(root, target.playerIds) else null
         if (player == null) {
-            // Just tapped the tab: keep covering while the player loads.
-            if (overlay != null && lastCheck < preemptUntil) {
+            missCount++
+            val loadingAfterTap = lastCheck < preemptUntil
+            if (overlay != null && (loadingAfterTap || missCount < MISSES_BEFORE_HIDE)) {
                 scheduleCheck(POLL_MS)
             } else {
                 hideCover()
@@ -150,10 +156,13 @@ class ReelBlockerService : AccessibilityService() {
             return
         }
 
+        missCount = 0
         preemptUntil = 0L
-        val bounds = Rect().also { player.getBoundsInScreen(it) }
-        clipAboveTabBar(root, target, bounds)
-        showCover("${target.name} blocked", bounds)
+        // Cover the whole screen above the tab bar rather than the player's own
+        // bounds, which shift while it animates and made the cover jump.
+        val bounds = Rect().also { root!!.getBoundsInScreen(it) }
+        clipAboveTabBar(root!!, target!!, bounds)
+        showCover("Shh… ${target.name} are snoozing", bounds)
         scheduleCheck(POLL_MS)
     }
 
@@ -207,6 +216,7 @@ class ReelBlockerService : AccessibilityService() {
     }
 
     private fun hideCover() {
+        missCount = 0
         overlay?.let { getSystemService(WindowManager::class.java).removeView(it) }
         overlay = null
         muteMusic(false)

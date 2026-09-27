@@ -1,27 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Inflated by the service, which has no theme, so fonts/colors are set here. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000"
+    android:background="@color/night"
     android:gravity="center"
     android:orientation="vertical"
     android:padding="32dp">
+
+    <ImageView
+        android:layout_width="128dp"
+        android:layout_height="128dp"
+        android:contentDescription="@null"
+        android:src="@drawable/snoozy_face" />
 
     <TextView
         android:id="@+id/blockedText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textColor="#FFFFFF"
-        android:textSize="32sp"
+        android:layout_marginTop="28dp"
+        android:fontFamily="@font/nunito"
+        android:gravity="center"
+        android:textColor="@color/cream"
+        android:textSize="26sp"
         android:textStyle="bold" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="12dp"
+        android:fontFamily="@font/nunito"
         android:gravity="center"
+        android:lineSpacingMultiplier="1.2"
         android:text="@string/overlay_description"
-        android:textColor="#CCCCCC"
-        android:textSize="18sp" />
-
+        android:textColor="@color/ink_soft"
+        android:textSize="16sp" />
 </LinearLayout>

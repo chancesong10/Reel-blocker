@@ -7,24 +7,24 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.LayoutInflater
 import android.view.View
-import android.widget.ArrayAdapter
-import android.widget.Button
-import android.widget.Spinner
+import android.widget.LinearLayout
 import android.widget.TextView
 
 class MainActivity : Activity() {
 
-    // Minimum time blocking must stay on before "Unblock" becomes available.
+    // Minimum time blocking must stay on before it can be turned off.
+    // (chip label, big text in the ring, length in ms)
     private val lockOptions = listOf(
-        "No minimum" to 0L,
-        "15 minutes" to 15 * MINUTE,
-        "30 minutes" to 30 * MINUTE,
-        "1 hour" to 60 * MINUTE,
-        "2 hours" to 2 * 60 * MINUTE,
-        "4 hours" to 4 * 60 * MINUTE,
-        "8 hours" to 8 * 60 * MINUTE,
-        "24 hours" to 24 * 60 * MINUTE,
+        Triple("None", "0m", 0L),
+        Triple("15m", "15m", 15 * MINUTE),
+        Triple("30m", "30m", 30 * MINUTE),
+        Triple("1h", "1h", 60 * MINUTE),
+        Triple("2h", "2h", 2 * 60 * MINUTE),
+        Triple("4h", "4h", 4 * 60 * MINUTE),
+        Triple("8h", "8h", 8 * 60 * MINUTE),
+        Triple("24h", "24h", 24 * 60 * MINUTE),
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -35,28 +35,47 @@ class MainActivity : Activity() {
         }
     }
 
-    private lateinit var lockSpinner: Spinner
+    private val chips = mutableListOf<TextView>()
+    private var selected = 0
+
+    private lateinit var ring: TimerRingView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        ring = findViewById(R.id.ring)
 
-        findViewById<Button>(R.id.setupButton).setOnClickListener {
+        findViewById<View>(R.id.setupButton).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
-        lockSpinner = findViewById(R.id.lockSpinner)
-        lockSpinner.adapter = ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, lockOptions.map { it.first }
-        )
+        val lastChoice = BlockState.lastChoiceMs(this, 60 * MINUTE)
+        selected = lockOptions.indexOfFirst { it.third == lastChoice }.coerceAtLeast(0)
+        buildChips()
 
-        findViewById<Button>(R.id.toggleButton).setOnClickListener {
+        findViewById<View>(R.id.toggleButton).setOnClickListener {
             if (BlockState.isBlocking(this)) {
                 BlockState.unblock(this)
             } else {
-                BlockState.block(this, lockOptions[lockSpinner.selectedItemPosition].second)
+                BlockState.block(this, lockOptions[selected].third)
             }
             render()
+        }
+    }
+
+    private fun buildChips() {
+        val rows = listOf<LinearLayout>(findViewById(R.id.chipRow1), findViewById(R.id.chipRow2))
+        val inflater = LayoutInflater.from(this)
+        lockOptions.forEachIndexed { i, option ->
+            val row = rows[i / 4]
+            val chip = inflater.inflate(R.layout.item_chip, row, false) as TextView
+            chip.text = option.first
+            chip.setOnClickListener {
+                selected = i
+                render()
+            }
+            row.addView(chip)
+            chips += chip
         }
     }
 
@@ -74,26 +93,58 @@ class MainActivity : Activity() {
         val serviceOn = isServiceEnabled()
         val blocking = BlockState.isBlocking(this)
         val remaining = BlockState.lockRemainingMs(this)
+        val locked = blocking && remaining > 0
 
-        findViewById<TextView>(R.id.status).text = when {
-            !serviceOn -> "Not set up yet\nTap below, then turn on \"Snoozy\"."
-            blocking -> "✅ Reels and Shorts are blocked"
-            else -> "Reels and Shorts are allowed"
-        }
         findViewById<View>(R.id.setupGroup).visibility = if (serviceOn) View.GONE else View.VISIBLE
         findViewById<View>(R.id.controlGroup).visibility = if (serviceOn) View.VISIBLE else View.GONE
+        if (!serviceOn) return
 
-        // The lock length is only chosen when turning blocking on.
-        val pickVisibility = if (blocking) View.GONE else View.VISIBLE
-        findViewById<View>(R.id.lockLabel).visibility = pickVisibility
-        lockSpinner.visibility = pickVisibility
+        val pill = findViewById<TextView>(R.id.statusPill)
+        pill.text = if (blocking) "😴  Reels & Shorts are snoozing" else "☀️  Reels & Shorts are awake"
+        pill.setBackgroundResource(if (blocking) R.drawable.bg_pill_mint else R.drawable.bg_pill_coral)
 
-        val toggle = findViewById<Button>(R.id.toggleButton)
-        toggle.text = if (blocking) "Unblock" else "Block Reels & Shorts"
-        toggle.isEnabled = !blocking || remaining == 0L
+        val big = findViewById<TextView>(R.id.ringBig)
+        val caption = findViewById<TextView>(R.id.ringCaption)
+        when {
+            locked -> {
+                val total = BlockState.lockTotalMs(this).coerceAtLeast(remaining)
+                ring.ringColor = getColor(R.color.coral)
+                ring.progress = remaining.toFloat() / total
+                big.text = formatDuration(remaining)
+                caption.text = "until you can wake them up"
+            }
+            blocking -> {
+                ring.ringColor = getColor(R.color.mint_deep)
+                ring.progress = 1f
+                big.text = "Zzz"
+                caption.text = "sleeping soundly"
+            }
+            else -> {
+                ring.progress = 0f
+                big.text = lockOptions[selected].second
+                caption.text = "minimum snooze"
+            }
+        }
 
-        findViewById<TextView>(R.id.lockText).text =
-            if (blocking && remaining > 0) "You can unblock in ${formatDuration(remaining)}" else ""
+        // The lock length is only chosen when starting a snooze.
+        findViewById<View>(R.id.chipGroup).visibility = if (blocking) View.GONE else View.VISIBLE
+        chips.forEachIndexed { i, chip -> chip.isSelected = i == selected }
+
+        val toggle = findViewById<TextView>(R.id.toggleButton)
+        toggle.text = when {
+            locked -> "🔒  Locked"
+            blocking -> "Wake up"
+            else -> "Start snoozing"
+        }
+        toggle.isEnabled = !locked
+        toggle.setTextColor(getColor(if (locked) R.color.ink_soft else R.color.card))
+
+        findViewById<TextView>(R.id.hint).text = when {
+            locked -> "You picked this lock. Hang in there!"
+            blocking -> "Your lock is over. You can wake them up any time."
+            selected == 0 -> "No lock: you can wake them up any time."
+            else -> "Once started, you can't stop early."
+        }
     }
 
     private fun formatDuration(ms: Long): String {
