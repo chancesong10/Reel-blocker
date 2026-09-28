@@ -18,7 +18,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:lineSpacingMultiplier="1.2"
-            android:text="When someone sends you a Reel in DMs, you can watch that one Reel. Swiping to more stays blocked. People show up here after you open a chat with them."
+            android:text="When a Reel is sent in a chat, one-on-one or group, you can watch that one Reel. Swiping to more stays blocked. Chats show up here after you open them."
             android:textColor="@color/ink_soft"
             android:textSize="15sp" />
 

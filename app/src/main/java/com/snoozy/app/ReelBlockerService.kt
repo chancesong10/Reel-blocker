@@ -9,14 +9,12 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
-import android.widget.FrameLayout
 import android.widget.TextView
 
 class ReelBlockerService : AccessibilityService() {
@@ -29,22 +27,30 @@ class ReelBlockerService : AccessibilityService() {
         private const val DEBUG_DUMP_IDS = false
 
         private const val CHECK_INTERVAL_MS = 80L
-        // While covering a Reel, keep re-checking so the cover disappears as
-        // soon as you navigate away (even to an app we get no events from).
-        private const val POLL_MS = 300L
-        // While covering, how often to check whether you're swiping away to
-        // the home screen or recent apps, so the cover doesn't linger on top.
+        // Right after a tap or a new screen, check this often for a while so
+        // a Reel is caught the moment it opens.
+        private const val FAST_CHECK_MS = 30L
+        private const val FAST_WATCH_MS = 1500L
+        // While a Reel is open, keep re-checking until it's gone.
+        private const val POLL_MS = 150L
+        // While the modal is up, how often to check whether you're swiping
+        // away to the home screen or recent apps, so it doesn't follow you.
         private const val LEAVE_WATCH_MS = 100L
-        // After tapping the Reels/Shorts tab, how long the cover waits for the
+        // Back takes a moment to close the Reel. Only press it again if the
+        // Reel is still there after this long, and at most MAX_BACKS times,
+        // so an extra press never backs out of the screen you came from.
+        private const val BACK_RETRY_MS = 1000L
+        private const val MAX_BACKS = 2
+        // After tapping the Reels/Shorts tab, how long the modal waits for the
         // player to appear before assuming it was a false alarm.
         private const val PREEMPT_GRACE_MS = 1500L
         // A single missed check (mid-animation, tree not ready) is not enough
-        // to uncover the Reel; that caused the cover to flicker on and off.
-        private const val MISSES_BEFORE_HIDE = 2
-        // A Reel counts as "sent by a friend" if it opens this soon after a
+        // to count the Reel as closed.
+        private const val MISSES_BEFORE_GONE = 2
+        // A Reel counts as "sent in a chat" if it opens this soon after a
         // DM chat was on screen.
         private const val FROM_DM_WINDOW_MS = 2500L
-        // Ignore scroll events while the friend's Reel is still opening.
+        // Ignore scroll events while the chat's Reel is still opening.
         private const val PASS_SETTLE_MS = 800L
     }
 
@@ -53,9 +59,7 @@ class ReelBlockerService : AccessibilityService() {
         val name: String,
         // View IDs that only exist on the Reels / Shorts players.
         val playerIds: List<String>,
-        // The app's own bottom tab bar, left uncovered so you can navigate away.
-        val tabBarIds: List<String>,
-        // A DM chat screen, and the chat name at its top. Empty = no friend Reels.
+        // A DM chat screen, and the chat name at its top. Empty = no chat Reels.
         val dmChatIds: List<String> = emptyList(),
         val dmTitleIds: List<String> = emptyList(),
     )
@@ -69,7 +73,6 @@ class ReelBlockerService : AccessibilityService() {
                 "com.instagram.android:id/clips_video_container",
                 "com.instagram.android:id/clips_root_layout",
             ),
-            listOf("com.instagram.android:id/tab_bar"),
             // From a real DM chat screen (Instagram, September 2026).
             dmChatIds = listOf(
                 "com.instagram.android:id/row_thread_composer_edittext",
@@ -84,17 +87,18 @@ class ReelBlockerService : AccessibilityService() {
                 "com.google.android.youtube:id/reel_recycler",
                 "com.google.android.youtube:id/reel_watch_player",
             ),
-            listOf("com.google.android.youtube:id/pivot_bar"),
         ),
     )
 
     private val handler = Handler(Looper.getMainLooper())
-    private var checkPending = false
+    // When the queued check will run; 0 = none queued.
+    private var checkDueAt = 0L
     private var lastCheck = 0L
+    private var fastUntil = 0L
     private var preemptUntil = 0L
     private var missCount = 0
 
-    // Friend Reels: the DM chat last seen, and whether the Reel now on screen
+    // Chat Reels: the DM chat last seen, and whether the Reel now on screen
     // is the one that chat sent (a "pass"). Swiping to another Reel ends it.
     private var dmChat: String? = null
     private var dmSeenAt = 0L
@@ -102,40 +106,46 @@ class ReelBlockerService : AccessibilityService() {
     private var pass = false
     private var passStartedAt = 0L
 
-    private var overlay: View? = null
-    private var overlayBounds = Rect()
+    // Back presses sent for the Reel now open.
+    private var backs = 0
+    private var lastBackAt = 0L
+
+    private var modal: View? = null
+    // False while the modal is only up because the Reels tab was tapped and
+    // the player hasn't shown yet, so it can still be a false alarm.
+    private var modalConfirmed = false
     private var mutedMusic = false
 
     private val checkRunnable = Runnable {
-        checkPending = false
+        checkDueAt = 0L
         check()
     }
 
     private val leaveWatch = object : Runnable {
         override fun run() {
-            if (overlay == null) return
-            if (anotherAppTakingOver()) hideCover() else handler.postDelayed(this, LEAVE_WATCH_MS)
+            if (modal == null) return
+            if (anotherAppTakingOver()) hideModal() else handler.postDelayed(this, LEAVE_WATCH_MS)
         }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         val target = targets[event.packageName?.toString()] ?: return
-        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
-            // Any other tap (e.g. a different tab) cancels the grace period.
-            if (isTabTap(event, target)) {
-                // The Reels tab is never a friend's Reel, even right after a chat.
-                dmSeenAt = 0L
-                preemptCover(target)
-            } else {
-                preemptUntil = 0L
-            }
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED ||
+            event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        ) {
+            fastUntil = SystemClock.uptimeMillis() + FAST_WATCH_MS
+        }
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED && isTabTap(event, target)) {
+            // The Reels tab is never a chat's Reel, even right after a chat.
+            dmSeenAt = 0L
+            preempt(target)
         }
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && pass) onScrollDuringPass(event, target)
         scheduleCheck(0L)
     }
 
-    // Swiping from the friend's Reel to the next one ends the pass.
+    // Swiping from the chat's Reel to the next one ends the pass.
     private fun onScrollDuringPass(event: AccessibilityEvent, target: Target) {
         val id = event.source?.viewIdResourceName
         if (SystemClock.uptimeMillis() - passStartedAt < PASS_SETTLE_MS) return
@@ -144,7 +154,7 @@ class ReelBlockerService : AccessibilityService() {
 
     // The player only shows up in the tree after it has drawn, which lets a
     // few frames of video through. Tapping the Reels/Shorts tab is the common
-    // way in, so cover the screen on the tap itself, before the video loads.
+    // way in, so put the modal up on the tap itself, before the video loads.
     private fun isTabTap(event: AccessibilityEvent, target: Target): Boolean {
         val source = event.source
         val labels = event.text.map { it.toString() } + listOfNotNull(
@@ -155,29 +165,24 @@ class ReelBlockerService : AccessibilityService() {
         return labels.any { it.trim().equals(target.name, ignoreCase = true) }
     }
 
-    private fun preemptCover(target: Target) {
+    private fun preempt(target: Target) {
         if (!BlockState.isBlocking(this)) return
-        val root = rootInActiveWindow ?: return
-        val bounds = Rect().also { root.getBoundsInScreen(it) }
-        clipAboveTabBar(root, target, bounds)
-        showCover("Shh… ${target.name} are snoozing", bounds)
+        showModal(target, confirmed = false)
+        muteMusic(true)
         preemptUntil = SystemClock.uptimeMillis() + PREEMPT_GRACE_MS
     }
 
-    private fun clipAboveTabBar(root: AccessibilityNodeInfo, target: Target, bounds: Rect) {
-        findVisible(root, target.tabBarIds)?.let { tabBar ->
-            val tabBounds = Rect().also { tabBar.getBoundsInScreen(it) }
-            if (tabBounds.top > bounds.top) bounds.bottom = minOf(bounds.bottom, tabBounds.top)
-        }
-    }
-
     // Content-changed events fire constantly, so coalesce them into at most
-    // one tree scan per CHECK_INTERVAL_MS, but never drop the last one.
+    // one tree scan per CHECK_INTERVAL_MS, but never drop the last one. An
+    // event can pull a slow queued poll forward, never push it back.
     private fun scheduleCheck(minDelay: Long) {
-        if (checkPending) return
-        checkPending = true
-        val sinceLast = SystemClock.uptimeMillis() - lastCheck
-        handler.postDelayed(checkRunnable, maxOf(minDelay, CHECK_INTERVAL_MS - sinceLast, 0L))
+        val now = SystemClock.uptimeMillis()
+        val interval = if (now < fastUntil) FAST_CHECK_MS else CHECK_INTERVAL_MS
+        val due = now + maxOf(minDelay, interval - (now - lastCheck), 0L)
+        if (checkDueAt != 0L && checkDueAt <= due) return
+        handler.removeCallbacks(checkRunnable)
+        checkDueAt = due
+        handler.postAtTime(checkRunnable, due)
     }
 
     private fun check() {
@@ -185,9 +190,10 @@ class ReelBlockerService : AccessibilityService() {
 
         val root = rootInActiveWindow
         val target = targets[root?.packageName?.toString()]
-        // Another app in front, or blocking turned off: uncover right away.
+        // Blocking turned off, or another app in front: stand down.
         if (!BlockState.isBlocking(this) || (root != null && target == null)) {
-            hideCover()
+            hideModal()
+            muteMusic(false)
             return
         }
         if (root != null && DEBUG_DUMP_IDS) dumpIds(root, 0)
@@ -196,51 +202,66 @@ class ReelBlockerService : AccessibilityService() {
         if (player == null) {
             if (root != null && target != null) noteDmChat(root, target)
             missCount++
-            // Count the player as gone only once the cover would come off too.
-            if (missCount >= MISSES_BEFORE_HIDE) {
+            val loadingAfterTap = lastCheck < preemptUntil
+            if (missCount >= MISSES_BEFORE_GONE && !loadingAfterTap) {
+                // The Reel is closed, or the tab tap was a false alarm.
                 playerShowing = false
                 pass = false
+                backs = 0
+                muteMusic(false)
+                if (!modalConfirmed) hideModal()
             }
-            val loadingAfterTap = lastCheck < preemptUntil
-            if (overlay != null && (loadingAfterTap || missCount < MISSES_BEFORE_HIDE)) {
-                scheduleCheck(POLL_MS)
-            } else {
-                hideCover()
+            // Keep looking while a Reel may be opening or still closing.
+            if (loadingAfterTap || missCount < MISSES_BEFORE_GONE || lastCheck < fastUntil) {
+                scheduleCheck(0L)
             }
             return
         }
 
         missCount = 0
+        preemptUntil = 0L
         if (!playerShowing) {
-            // A Reel just opened. Was it tapped in an allowed friend's chat?
+            // A Reel just opened. Was it tapped in an allowed chat?
             playerShowing = true
+            backs = 0
             val chat = dmChat
             pass = chat != null && lastCheck - dmSeenAt < FROM_DM_WINDOW_MS &&
                 FriendsStore.isAllowed(this, chat)
             passStartedAt = lastCheck
         }
         if (pass) {
-            preemptUntil = 0L
-            hideCover()
+            if (!modalConfirmed) hideModal()
+            muteMusic(false)
             scheduleCheck(POLL_MS)
             return
         }
 
-        preemptUntil = 0L
-        // Mid-swipe to home/recents Instagram can still look active; don't
-        // put the cover back up while the launcher is taking over.
-        if (overlay == null && anotherAppTakingOver()) return
-        // Cover the whole screen above the tab bar rather than the player's own
-        // bounds, which shift while it animates and made the cover jump.
-        val bounds = Rect().also { root!!.getBoundsInScreen(it) }
-        clipAboveTabBar(root!!, target!!, bounds)
-        showCover("Shh… ${target.name} are snoozing", bounds)
+        // Mid-swipe to home/recents Instagram can still look active, and
+        // pressing Back then could act on the launcher instead.
+        if (anotherAppTakingOver()) {
+            hideModal()
+            scheduleCheck(POLL_MS)
+            return
+        }
+
+        // Send you back to where the Reel was opened from, then say why.
+        muteMusic(true)
+        showModal(target!!, confirmed = true)
+        if (backs < MAX_BACKS && (backs == 0 || lastCheck - lastBackAt >= BACK_RETRY_MS)) {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            backs++
+            lastBackAt = lastCheck
+        }
         scheduleCheck(POLL_MS)
     }
 
     // Remember which DM chat is open, so a Reel tapped in it can be allowed.
     private fun noteDmChat(root: AccessibilityNodeInfo, target: Target) {
         if (target.dmChatIds.isEmpty() || findVisible(root, target.dmChatIds) == null) return
+        // Back in a chat means the last Reel is closed, so the next Reel
+        // tapped here is judged fresh (and can get its own pass).
+        playerShowing = false
+        pass = false
         val name = findVisible(root, target.dmTitleIds)?.text?.toString()?.trim()
         if (name.isNullOrEmpty()) return
         dmChat = name
@@ -253,48 +274,35 @@ class ReelBlockerService : AccessibilityService() {
             root.findAccessibilityNodeInfosByViewId(id).firstOrNull { it.isVisibleToUser }
         }
 
-    // A black panel over just the player. It swallows touches on the video
-    // but everything outside it (tab bar, system Back/Home) keeps working.
-    // Accessibility overlays need no extra permission.
-    private fun showCover(message: String, bounds: Rect) {
-        val wm = getSystemService(WindowManager::class.java)
-        val existing = overlay
-        if (existing != null) {
-            if (bounds != overlayBounds) {
-                overlayBounds = bounds
-                placeBackButton(existing, bounds)
-                wm.updateViewLayout(existing, coverParams(bounds))
-            }
-            existing.findViewById<TextView>(R.id.blockedText).text = message
+    // A small card over the dimmed app, saying Reels are snoozing. It
+    // swallows touches until OK is pressed. Accessibility overlays need no
+    // extra permission.
+    private fun showModal(target: Target, confirmed: Boolean) {
+        modalConfirmed = modalConfirmed || confirmed
+        val title = "Shh… ${target.name} are snoozing"
+        modal?.let {
+            it.findViewById<TextView>(R.id.snoozeTitle).text = title
             return
         }
 
-        val view = LayoutInflater.from(this).inflate(R.layout.blocked_overlay, null)
-        view.findViewById<TextView>(R.id.blockedText).text = message
-        // Back works like the phone's Back: the app underneath leaves the Reel.
-        view.findViewById<View>(R.id.coverBack).setOnClickListener {
-            performGlobalAction(GLOBAL_ACTION_BACK)
+        val view = LayoutInflater.from(this).inflate(R.layout.snooze_modal, null)
+        view.findViewById<TextView>(R.id.snoozeTitle).text = title
+        view.findViewById<View>(R.id.snoozeOk).setOnClickListener {
+            hideModal()
+            // If the Reel is somehow still open, the next check sends you back again.
+            backs = 0
+            scheduleCheck(0L)
         }
-        placeBackButton(view, bounds)
-        wm.addView(view, coverParams(bounds))
-        overlay = view
-        overlayBounds = bounds
-        muteMusic(true)
+        getSystemService(WindowManager::class.java).addView(view, modalParams())
+        modal = view
         handler.postDelayed(leaveWatch, LEAVE_WATCH_MS)
     }
 
-    // Keep the back button below the status bar when the cover reaches the top.
-    private fun placeBackButton(view: View, bounds: Rect) {
-        val button = view.findViewById<View>(R.id.coverBack)
-        val params = button.layoutParams as FrameLayout.LayoutParams
-        val gap = (16 * resources.displayMetrics.density).toInt()
-        params.topMargin = maxOf(statusBarHeight() - bounds.top, 0) + gap
-        button.layoutParams = params
-    }
-
-    private fun statusBarHeight(): Int {
-        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
-        return if (id > 0) resources.getDimensionPixelSize(id) else 0
+    private fun hideModal() {
+        handler.removeCallbacks(leaveWatch)
+        modal?.let { getSystemService(WindowManager::class.java).removeView(it) }
+        modal = null
+        modalConfirmed = false
     }
 
     // Instagram/YouTube only report their own events, so swiping up to the
@@ -314,20 +322,17 @@ class ReelBlockerService : AccessibilityService() {
         }
     }
 
-    private fun coverParams(bounds: Rect) = WindowManager.LayoutParams(
-        bounds.width(),
-        bounds.height(),
+    private fun modalParams() = WindowManager.LayoutParams(
+        WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.MATCH_PARENT,
         WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        // Not focusable, so Back still reaches the app underneath.
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-        PixelFormat.OPAQUE
+        PixelFormat.TRANSLUCENT
     ).apply {
-        gravity = Gravity.TOP or Gravity.START
-        x = bounds.left
-        y = bounds.top
-        // Position in raw screen coordinates, not shifted by the system bars.
+        // Dim the whole screen, under the system bars too.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) fitInsetsTypes = 0
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             layoutInDisplayCutoutMode =
@@ -335,15 +340,7 @@ class ReelBlockerService : AccessibilityService() {
         }
     }
 
-    private fun hideCover() {
-        missCount = 0
-        handler.removeCallbacks(leaveWatch)
-        overlay?.let { getSystemService(WindowManager::class.java).removeView(it) }
-        overlay = null
-        muteMusic(false)
-    }
-
-    // The Reel keeps playing under the cover, so silence it while covered.
+    // Silence the Reel for the moment it plays before Back closes it.
     private fun muteMusic(mute: Boolean) {
         if (mute == mutedMusic) return
         mutedMusic = mute
@@ -364,7 +361,8 @@ class ReelBlockerService : AccessibilityService() {
 
     override fun onDestroy() {
         handler.removeCallbacks(checkRunnable)
-        hideCover()
+        hideModal()
+        muteMusic(false)
         super.onDestroy()
     }
 }

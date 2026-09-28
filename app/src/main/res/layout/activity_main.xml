@@ -218,7 +218,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:text="Friends' Reels"
+                        android:text="Reels in Chats"
                         android:textSize="16sp"
                         android:textStyle="bold" />
 

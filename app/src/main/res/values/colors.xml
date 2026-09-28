@@ -15,4 +15,6 @@
     <color name="track">#F1EAE1</color>
     <color name="disabled">#E6E0D8</color>
     <color name="night">#1E1C2A</color>
+    <!-- Night at 70%, dims the app behind the snooze modal. -->
+    <color name="scrim">#B31E1C2A</color>
 </resources>

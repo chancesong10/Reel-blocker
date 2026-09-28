@@ -14,7 +14,7 @@ class FriendsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_friends)
-        findViewById<TextView>(R.id.pageTitle).text = "💌  Friends' Reels"
+        findViewById<TextView>(R.id.pageTitle).text = "💌  Reels in Chats"
         findViewById<View>(R.id.backButton).setOnClickListener { finish() }
 
         findViewById<View>(R.id.allowAll).setOnClickListener {
